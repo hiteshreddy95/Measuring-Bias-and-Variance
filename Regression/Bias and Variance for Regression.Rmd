@@ -1,0 +1,344 @@
+---
+title: "Measuring Bias and Variance - Regression"
+output: html_document
+---
+
+```{r}
+#Reading the dataset
+rm(list = ls(all=TRUE))
+data = read.csv('airfoil_self_noise.csv', header = TRUE)
+```
+# Exploratory Data Analysis
+```{r}
+head(data)
+```
+
+```{r}
+tail(data)
+```
+
+```{r}
+summary(data)
+```
+
+```{r}
+str(data)
+```
+
+```{r}
+colSums(is.na(data))
+```
+#NO missing Values Found
+```{r}
+colnames(data)
+```
+
+```{r}
+dim(data)
+```
+# Splitting the data into train and test
+```{r}
+library(caret)
+set.seed(123)
+train_rows <- createDataPartition(data$scaled_sound_pressure_level,p = 0.7,list = FALSE)
+traindf = data[train_rows,]
+testdf = data[-train_rows,]
+```
+
+```{r}
+str(testdf)
+```
+
+-----------------------------------------------Linear Regression---------------------------------------------
+# Bootstrap Sampling and Modeling(100samples, 100models)
+```{r}
+# parallel   ---------------------------------------------------------
+library(foreach)
+library(doParallel)
+
+#setup parallel back end to use 8 processors
+cl<-makeCluster(6)
+registerDoParallel(cl)
+
+#  sample data 100 times 
+length_divisor <- 1
+predictions<-foreach(m=1:100,.combine=cbind) %dopar% { 
+        # using sample function without seed
+     sampleRows <- sample(nrow(traindf), size=floor((nrow(traindf)/length_divisor)),replace = TRUE)
+     fit <- lm(scaled_sound_pressure_level ~ ., data = traindf[sampleRows,])
+     predictions <- data.frame(predict(object=fit, testdf[,-6], se.fit = TRUE)[[1]])
+} 
+stopCluster(cl)
+
+library(pROC)
+dim(predictions)
+test_with_predictions = cbind(testdf,predictions)
+dim(test_with_predictions)
+tail(tail(test_with_predictions))
+test_with_predictions = subset(test_with_predictions[,c(-1,-2,-3,-4,-5)])
+tail(test_with_predictions)
+# Calculating the expected estimate
+test_with_predictions$Avg_prediction = rowMeans(test_with_predictions[,2:101])
+test_with_predictions$Avg_prediction
+tail(test_with_predictions)
+```
+
+```{r}
+predictions
+```
+
+```{r}
+dim(predictions)
+```
+#Calculating Bias Square and Variance
+```{r}
+library(matrixStats)
+test_with_predictions$Bias_square = (test_with_predictions$scaled_sound_pressure_level - test_with_predictions$Avg_prediction)^2
+Linear_Regression_Bias_Square = mean(test_with_predictions$Bias_square)
+test_with_predictions$Variance = rowVars(x = data.matrix(test_with_predictions, rownames.force = NA), cols = c(-1,-102,-103))
+tail(test_with_predictions)
+```
+#Caculating the model Bias Square
+```{r}
+Bias_square_LR = mean(test_with_predictions$Bias_square)
+Bias_square_LR
+```
+#Calculating the model Variance
+```{r}
+Variance_LR = mean(test_with_predictions$Variance)
+Variance_LR
+```
+
+```{r}
+Bias_square_LR + Variance_LR
+```
+# calculating the Mean Squared Error
+```{r}
+calculationLR = test_with_predictions[1:101]
+calculationLR[2:101] = (calculationLR[2:101]-calculationLR[,1])^2
+tail(calculationLR)
+ 
+calculationLR$MSE = rowMeans(calculationLR[,2:101])
+mean(calculationLR$MSE)
+
+
+```
+# Calculating MSE
+```{r}
+calculationLR$MSE = rowMeans(calculationLR[,2:101])
+mean(calculationLR$MSE)
+```
+----------------------------------------------Decision_Tree--------------------------------------------------
+# Bootstrap Sampling and Modeling(100samples, 100models)
+```{r}
+# parallel   ---------------------------------------------------------
+library(foreach)
+library(doParallel)
+library(rpart)
+
+#setup parallel back end to use 8 processors
+cl<-makeCluster(6)
+registerDoParallel(cl)
+
+#  sample data 100 times 
+length_divisor <- 1
+predictions_dt<-foreach(m=1:100,.combine=cbind) %dopar% { 
+        # using sample function without seed
+  library(rpart)   
+  sampleRows <- sample(nrow(traindf), size=floor((nrow(traindf)/length_divisor)),replace = TRUE)
+     fit_dt <- rpart(scaled_sound_pressure_level ~ .,method="anova", data = traindf[sampleRows,])
+     predictions_dt <- data.frame(predict(object=fit_dt, testdf[,-6], se.fit = TRUE))
+} 
+stopCluster(cl)
+
+library(pROC)
+# Calculating the expected estimate
+dim(predictions_dt)
+test_with_predictions_dt = cbind(testdf,predictions_dt)
+dim(test_with_predictions_dt)
+tail(tail(test_with_predictions_dt))
+test_with_predictions_dt = subset(test_with_predictions_dt[,c(-1,-2,-3,-4,-5)])
+tail(test_with_predictions_dt)
+test_with_predictions_dt$Avg_prediction = rowMeans(test_with_predictions_dt[,2:101])
+test_with_predictions_dt$Avg_prediction
+tail(test_with_predictions_dt)
+```
+#Calculating Bias Square and Variance
+```{r}
+library(matrixStats)
+test_with_predictions_dt$Bias_square = (test_with_predictions_dt$scaled_sound_pressure_level - test_with_predictions_dt$Avg_prediction)^2
+DT_Regression_Bias_Square = mean(test_with_predictions_dt$Bias_square)
+test_with_predictions_dt$Variance = rowVars(x = data.matrix(test_with_predictions_dt, rownames.force = NA), cols = c(-1,-102,-103))
+tail(test_with_predictions_dt)
+```
+
+#Caculating the model Bias Square
+```{r}
+Bias_square_DT = mean(test_with_predictions_dt$Bias_square)
+Bias_square_DT
+```
+#Calculating the model Variance
+```{r}
+Variance_DT = mean(test_with_predictions_dt$Variance)
+Variance_DT
+```
+
+```{r}
+Bias_square_DT + Variance_DT
+```
+# Calculating the Mean Squared Error
+```{r}
+calculationDT = test_with_predictions_dt[1:101]
+calculationDT[2:101] = (calculationDT[2:101]-calculationDT[,1])^2
+tail(calculationDT)
+ 
+calculationDT$MSE = rowMeans(calculationDT[,2:101])
+mean(calculationDT$MSE)
+```
+
+```{r}
+calculationDT$MSE = rowMeans(calculationDT[,2:101])
+mean(calculationDT$MSE)
+```
+
+----------------------------------------------Random_Forest--------------------------------------------------
+# Bootstrap Sampling and Modeling(100samples, 100models)
+```{r}
+# parallel   ---------------------------------------------------------
+library(foreach)
+library(doParallel)
+library(rpart)
+library(randomForest)
+#setup parallel back end to use 8 processors
+cl<-makeCluster(6)
+registerDoParallel(cl)
+
+#  sample data 100 times 
+length_divisor <- 1
+predictions_rf<-foreach(m=1:100,.combine=cbind) %dopar% { 
+        # using sample function without seed
+  library(randomForest)   
+  sampleRows <- sample(nrow(traindf), size=floor((nrow(traindf)/length_divisor)),replace = TRUE)
+     fit_rf <- randomForest(scaled_sound_pressure_level ~ ., data = traindf[sampleRows,],keep.forest=TRUE, ntree=500)
+     predictions_rf <- data.frame(predict(object=fit_rf, testdf[,-6]))
+} 
+stopCluster(cl)
+
+library(pROC)
+# Calculating the expected estimate
+dim(predictions_rf)
+test_with_predictions_rf = cbind(testdf,predictions_rf)
+dim(test_with_predictions_rf)
+tail(tail(test_with_predictions_rf))
+test_with_predictions_rf = subset(test_with_predictions_rf[,c(-1,-2,-3,-4,-5)])
+tail(test_with_predictions_rf)
+test_with_predictions_rf$Avg_prediction = rowMeans(test_with_predictions_rf[,2:101])
+test_with_predictions_rf$Avg_prediction
+tail(test_with_predictions_rf)
+```
+# Calculating Bias Square and Variance
+```{r}
+library(matrixStats)
+test_with_predictions_rf$Bias_square = (test_with_predictions_rf$scaled_sound_pressure_level - test_with_predictions_rf$Avg_prediction)^2
+RF_Regression_Bias_Square = mean(test_with_predictions_rf$Bias_square)
+test_with_predictions_rf$Variance = rowVars(x = data.matrix(test_with_predictions_rf, rownames.force = NA), cols = c(-1,-102,-103))
+tail(test_with_predictions_rf)
+```
+```{r}
+table(test_with_predictions_rf$predict.object...fit_rf..testdf....6...se.fit...TRUE...1...1)
+```
+# Caculating the model Bias Square
+```{r}
+Bias_square_RF = mean(test_with_predictions_rf$Bias_square)
+Bias_square_RF
+```
+# Calculating the model Variance
+```{r}
+Variance_RF = mean(test_with_predictions_rf$Variance)
+Variance_RF
+```
+
+```{r}
+Bias_square_RF + Variance_RF
+```
+# Calculating the Mean Squared Error
+```{r}
+calculationRF = test_with_predictions_rf[1:101]
+calculationRF[2:101] = (calculationRF[2:101]-calculationRF[,1])^2
+tail(calculationRF)
+ 
+calculationRF$MSE = rowMeans(calculationRF[,2:101])
+mean(calculationRF$MSE)
+```
+
+```{r}
+calculationRF$MSE = rowMeans(calculationRF[,2:101])
+mean(calculationRF$MSE)
+```
+
+----------------------------------------------------SVM------------------------------------------------------
+# Bootstrap Sampling and Modeling(100samples, 100models)
+```{r}
+# parallel   ---------------------------------------------------------
+library(foreach)
+library(doParallel)
+
+#setup parallel back end to use 8 processors
+cl<-makeCluster(2)
+registerDoParallel(cl)
+
+#  sample data 100 times 
+length_divisor <- 1
+predictions_svm<-foreach(m=1:100,.combine=cbind) %dopar% { 
+        # using sample function without seed
+  library(e1071)   
+  sampleRows <- sample(nrow(traindf), size=floor((nrow(traindf)/length_divisor)),replace = TRUE)
+     fit_svm <- svm(scaled_sound_pressure_level ~ ., data = traindf[sampleRows,],kernel = "linear")
+     predictions_svm <- data.frame(predict(object=fit_svm, testdf[,-6]))
+} 
+stopCluster(cl)
+
+library(pROC)
+# Calculating the expected estimate
+dim(predictions_svm)
+test_with_predictions_svm = cbind(testdf,predictions_svm)
+dim(test_with_predictions_svm)
+tail(tail(test_with_predictions_svm))
+test_with_predictions_svm = subset(test_with_predictions_svm[,c(-1,-2,-3,-4,-5)])
+tail(test_with_predictions_svm)
+test_with_predictions_svm$Avg_prediction = rowMeans(test_with_predictions_svm[,2:101])
+test_with_predictions_svm$Avg_prediction
+tail(test_with_predictions_svm)
+```
+# Calculating Bias Square and Variance
+```{r}
+library(matrixStats)
+test_with_predictions_svm$Bias_square = (test_with_predictions_svm$scaled_sound_pressure_level - test_with_predictions_svm$Avg_prediction)^2
+svm_Regression_Bias_Square = mean(test_with_predictions_svm$Bias_square)
+test_with_predictions_svm$Variance = rowVars(x = data.matrix(test_with_predictions_svm, rownames.force = NA), cols = c(-1,-102,-103))
+tail(test_with_predictions_svm)
+```
+# Caculating the model Bias Square
+```{r}
+Bias_square_svm = mean(test_with_predictions_svm$Bias_square)
+Bias_square_svm
+```
+# Calculating the model Variance
+```{r}
+Variance_svm = mean(test_with_predictions_svm$Variance)
+Variance_svm
+```
+
+```{r}
+Bias_square_svm + Variance_svm
+```
+# Calculating the Mean Squared Error
+```{r}
+
+calculationsvm = test_with_predictions_svm[1:101]
+calculationsvm[2:101] = (calculationsvm[2:101]-calculationsvm[,1])^2
+tail(calculationsvm)
+ 
+calculationsvm$MSE = rowMeans(calculationsvm[,2:101])
+mean(calculationsvm$MSE)
+```
